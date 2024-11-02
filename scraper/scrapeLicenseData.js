@@ -1,6 +1,8 @@
-const puppeteer = require('puppeteer');
+const chromium = require('chrome-aws-lambda');
+const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
+
 // Path to the cache file
 const cacheFilePath = path.join(__dirname, 'cache.json');
 
@@ -39,12 +41,16 @@ async function scrapeLicenseData(refNo) {
   }
 
   try {
+    // Determine the executable path for Chromium
+    const executablePath = process.env.IS_LOCAL
+      ? require('puppeteer').executablePath() // Use Puppeteer's built-in Chromium for local development
+      : await chromium.executablePath; // Use chrome-aws-lambda for serverless environments
+
     // Launch Puppeteer browser instance
     browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      executablePath: puppeteer.executablePath(),
-      // defaultViewport: { width: 1920, height: 1080 },
+      args: chromium.args,
+      executablePath: executablePath,
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
