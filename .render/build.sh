@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+# Complete sequence of commands
+mkdir -p .render
+echo '#!/usr/bin/env bash
 apt-get update && apt-get install -y \
     fonts-liberation \
     libasound2 \
@@ -18,4 +20,9 @@ apt-get update && apt-get install -y \
     libxrandr2 \
     xdg-utils \
     libu2f-udev \
-    libvulkan1
+    libvulkan1' > .render/build.sh
+chmod +x .render/build.sh
+git add .render/build.sh
+git update-index --chmod=+x .render/build.sh
+git commit -m "Add Render build script"
+git push
