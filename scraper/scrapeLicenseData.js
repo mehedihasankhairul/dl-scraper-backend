@@ -1,5 +1,4 @@
-const chromium = require('chrome-aws-lambda');
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
@@ -41,19 +40,26 @@ async function scrapeLicenseData(refNo) {
   }
 
   try {
-    // Determine the executable path for Chromium
-    const executablePath = process.env.IS_LOCAL
-      ? require('puppeteer').executablePath() // Use Puppeteer's built-in Chromium for local development
-      : await chromium.executablePath; // Use chrome-aws-lambda for serverless environments
-
-    // Launch Puppeteer browser instance
+    // Launch Puppeteer browser instance with Render-specific configurations
     browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: executablePath,
-      headless: chromium.headless,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-extensions'
+      ],
+      headless: 'new',
+      ignoreHTTPSErrors: true
     });
 
     const page = await browser.newPage();
+
+    // Set a reasonable viewport
+    await page.setViewport({ width: 1280, height: 800 });
 
     // Optimize request handling to speed up the scraping process
     await page.setRequestInterception(true);
@@ -66,14 +72,23 @@ async function scrapeLicenseData(refNo) {
       }
     });
 
-    // Navigate to the page with specified options
-    await page.goto(`${process.env.url}refno=${refNo}`, {
-      waitUntil: 'networkidle0',
-      timeout: 30000,
-    });
+    // Add error handling for navigation
+    try {
+      // Navigate to the page with specified options
+      await page.goto(`${process.env.url}refno=${refNo}`, {
+        waitUntil: 'networkidle0',
+        timeout: 30000,
+      });
+    } catch (navigationError) {
+      throw new Error(`Navigation failed: ${navigationError.message}`);
+    }
 
-    // Wait for the specific element to ensure the page is loaded
-    await page.waitForSelector('#registerno', { timeout: 5000 });
+    // Wait for the specific element with better error handling
+    try {
+      await page.waitForSelector('#registerno', { timeout: 5000 });
+    } catch (selectorError) {
+      throw new Error(`Element '#registerno' not found: ${selectorError.message}`);
+    }
 
     // Extract data from the page
     const data = await page.evaluate(() => {
@@ -112,7 +127,9 @@ async function scrapeLicenseData(refNo) {
     });
 
     // Validate the scraped data
-    const hasData = Object.values(data).some((value) => value && value.trim() !== '');
+    const hasData = Object.values(data).some((value) =>
+      value && (typeof value === 'object' ? Object.values(value).some(v => v && v.trim() !== '') : value.trim() !== '')
+    );
 
     if (!hasData) {
       throw new Error('No data was found on the page. Please verify the reference number and try again.');
@@ -134,18 +151,13 @@ async function scrapeLicenseData(refNo) {
     throw new Error(`Failed to scrape data: ${error.message}`);
   } finally {
     if (browser) {
-      await browser.close();
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.error('Error closing browser:', closeError);
+      }
     }
   }
 }
 
-// Export the function
 module.exports = scrapeLicenseData;
-
-// Optional: Test the function directly
-if (require.main === module) {
-  const testRefNo = 'YOUR_TEST_REFERENCE_NUMBER';
-  scrapeLicenseData(testRefNo)
-    .then((data) => console.log('Test result:', data))
-    .catch((error) => console.error('Test error:', error));
-}
