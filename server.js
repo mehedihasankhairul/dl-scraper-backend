@@ -37,7 +37,7 @@ const connectDB = async () => {
 connectDB();
 
 // Modified scraping endpoint with better error handling and logging
-app.get('/api/scrape/:refno', async (req, res) => {
+app.get('/api/user/:refno', async (req, res) => {
   try {
     const refNo = req.params.refno;
 
