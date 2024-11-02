@@ -1,0 +1,136 @@
+const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
+
+// Path to the cache file
+const cacheFilePath = path.join(__dirname, 'cache.json');
+
+
+// Function to load cache from the file
+function loadCache() {
+    if (fs.existsSync(cacheFilePath)) {
+      const cacheData = fs.readFileSync(cacheFilePath);
+      return JSON.parse(cacheData);
+    }
+    return {};
+  }
+  
+  // Function to save cache to the file
+  function saveCache(cache) {
+    fs.writeFileSync(cacheFilePath, JSON.stringify(cache, null, 2));
+  }
+
+  async function scrapeLicenseData(refNo) {
+    let browser;
+    // Load cache
+    const cache = loadCache();
+  
+    // Check if data for the reference number is already cached
+    if (cache[refNo]) {
+      console.log(`Data for reference number ${refNo} found in cache.`);
+      return cache[refNo];
+    }
+  
+    try {
+      // Launch browser with additional options
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        defaultViewport: { width: 1920, height: 1080 },
+      });
+  
+      const page = await browser.newPage();
+  
+      // Add request interception to handle any potential navigation issues
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        if (['image', 'stylesheet', 'font'].indexOf(request.resourceType()) !== -1) {
+          request.abort();
+        } else {
+          request.continue();
+        }
+      });
+  
+      // Navigate to the page
+      await page.goto(`https://dl.brta.gov.bd/brta/qrcodescan?refno=${refNo}`, {
+        waitUntil: ['networkidle0', 'domcontentloaded'],
+        timeout: 30000,
+      });
+  
+      // Wait for specific elements to load
+      await page.waitForSelector('#registerno', { timeout: 5000 }).catch(() =>
+        console.log('Warning: Registration number field not found')
+      );
+  
+      // Extract data from the page
+      const data = await page.evaluate(() => {
+        const getInputValue = (id) => {
+          const element = document.getElementById(id);
+          return element ? element.value || '' : '';
+        };
+  
+        const getTextContent = (id) => {
+          const element = document.getElementById(id);
+          return element ? element.textContent.trim() || '' : '';
+        };
+  
+        const photoElement = document.getElementById('photoId');
+        const photoSrc = photoElement ? photoElement.src || '' : '';
+  
+        return {
+          referenceNo: getInputValue('registerno') || getTextContent('registerno'),
+          referenceDate: getInputValue('refDate') || getTextContent('refDate'),
+          licenseType: getInputValue('licetype') || getTextContent('licetype'),
+          vehicleClass: getInputValue('vehicle') || getTextContent('vehicle'),
+          personalInfo: {
+            name: getInputValue('name') || getTextContent('name'),
+            fatherName: getInputValue('fathername') || getTextContent('fathername'),
+            motherName: getInputValue('mothername') || getTextContent('mothername'),
+            dateOfBirth: getInputValue('dateofbirth') || getTextContent('dateofbirth'),
+            bloodGroup: getInputValue('bloodgrp') || getTextContent('bloodgrp'),
+            mobileNo: getInputValue('mobilenumber') || getTextContent('mobilenumber'),
+            nidNumber: getInputValue('nidnumber') || getTextContent('nidnumber'),
+            permanentAddress: getInputValue('permanentaddress') || getTextContent('permanentaddress'),
+            presentAddress: getInputValue('presentaddress') || getTextContent('presentaddress'),
+            licensingAuthority: getInputValue('office') || getTextContent('office'),
+          },
+          photo: photoSrc,
+        };
+      });
+  
+      // Validate the scraped data
+      const hasData = Object.values(data).some((value) =>
+        value && (typeof value === 'string' ? value.trim() !== '' : true)
+      );
+  
+      if (!hasData) {
+        throw new Error('No data was found on the page. Please verify the reference number and try again.');
+      }
+  
+      // Save the scraped data to the cache
+      cache[refNo] = data;
+      saveCache(cache);
+  
+      console.log('Scraped data:', JSON.stringify(data, null, 2));
+  
+      return data;
+  
+    } catch (error) {
+      console.error('Detailed scraping error:', {
+        message: error.message,
+        stack: error.stack,
+        refNo: refNo,
+      });
+      throw new Error(`Failed to scrape data: ${error.message}`);
+  
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
+  
+  // Export the function
+  module.exports = scrapeLicenseData;
+  
+  
