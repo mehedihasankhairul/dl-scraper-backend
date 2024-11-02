@@ -43,7 +43,7 @@ async function scrapeLicenseData(refNo) {
     browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      defaultViewport: { width: 1920, height: 1080 },
+      // defaultViewport: { width: 1920, height: 1080 },
     });
 
     const page = await browser.newPage();
